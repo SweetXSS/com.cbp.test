@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+
+<configuration>
+  <property>
+     <name>dfs.namenode.name.dir</name>
+     <value>file:///var/lib/hadoop-hdfs/cache/hdfs/dfs/name</value>
+  </property>
+  <!-- CLOUDERA-BUILD: CDH-64745. -->
+  <property>
+    <name>cloudera.erasure_coding.enabled</name>
+    <value>true</value>
+  </property>
+</configuration>
