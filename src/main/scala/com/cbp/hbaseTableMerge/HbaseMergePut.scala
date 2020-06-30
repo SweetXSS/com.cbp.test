@@ -9,6 +9,8 @@ import org.apache.hadoop.mapreduce.Job
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.storage.StorageLevel
+
+import scala.collection.mutable.ArrayBuffer
 /**
  * 使用put方式
  * 弊端：数据量大，没有预分区，写入过程会造成 region拒绝写入（原因请百度），小批量数据ok
@@ -17,15 +19,13 @@ object HbaseMergePut {
   //设置日志级别
   Logger.getLogger("org").setLevel(Level.INFO)
   def main(args: Array[String]): Unit = {
-    //外部传参，读表、写表、开始row、结束row、临时文件路径、重分区数
+    //外部传参，读表、写表、开始row、结束row、临时文件路径、重分区数、列族
     val readTable = args(0)
     val writeTable = args(1)
     val startRow = args(2)
     val stopRow = args(3)
     val partition = args(4)
-    //指定列族、列
-    val columnf = "fpxx"
-    val columnNames = Array("xfmc", "xfsbh", "xfdzdh", "xfyhzh", "gfmc", "gfsbh", "gfdzdh", "gfyhzh", "fpdm", "fphm", "fp_lb", "je", "se", "jshj", "kpr", "kprq", "kpyf", "kpjh", "qdbz", "zfbz", "zfsj", "source", "gfqybm", "xfqybm")
+    val columnf = args(5)
     //创建spark sql入口类SparkSession
     val ss = SparkSession.builder().getOrCreate()
     //设置hbase配置信息
@@ -48,10 +48,16 @@ object HbaseMergePut {
       .persist(StorageLevel.MEMORY_AND_DISK_SER)
     //阶段2
       rdd.map(t => {
-      val put = new Put(t._2.getRow)
-      columnNames.foreach(col => {
-        put.addColumn(Bytes.toBytes(columnf), Bytes.toBytes(col), t._2.getValue(Bytes.toBytes(columnf), Bytes.toBytes(col)))
-      })
+        val put = new Put(t._2.getRow)
+        val cols = ArrayBuffer[String]()
+        val colsMap = t._2.getFamilyMap(Bytes.toBytes(columnf))
+        import scala.collection.JavaConversions._
+        for (entry <- colsMap.entrySet()) {
+          cols.append(Bytes.toString(entry.getKey))
+        }
+        cols.foreach(col => {
+          put.addColumn(Bytes.toBytes(columnf), Bytes.toBytes(col), t._2.getValue(Bytes.toBytes(columnf), Bytes.toBytes(col)))
+        })
       (new ImmutableBytesWritable, put)
     }).saveAsNewAPIHadoopDataset(job.getConfiguration)
   }

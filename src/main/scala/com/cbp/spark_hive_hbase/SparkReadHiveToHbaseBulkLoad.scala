@@ -73,6 +73,7 @@ object SparkReadHiveToHbaseBulkLoad {
         classOf[HFileOutputFormat2],
         hbaseConf)
 
+    //创建bulk load 对象
     val load = new LoadIncrementalHFiles(hbaseConf)
     load.doBulkLoad(new Path(hfilePath), conn.getAdmin, table, regionLocator)
 
@@ -83,35 +84,33 @@ object SparkReadHiveToHbaseBulkLoad {
 
   //获取到hive数据df，转换为rdd
   def mkOutputRdd(hiveDF: DataFrame, columnf: String, columnNames: Array[String], year: String): RDD[(ImmutableBytesWritable, KeyValue)] = {
-    hiveDF.rdd
-      .filter(row => row.length > 0 && !row(0).toString.contains("?") && ! nullDecide(row(0)) && ! nullDecide(row(1)))
+    val rdd1 = hiveDF.rdd.filter(row => row.length > 0 && !row(0).toString.contains("?") && !nullDecide(row(0)) && !nullDecide(row(1)))
       .coalesce(400, true)
       .persist(StorageLevel.MEMORY_AND_DISK_SER)
-      .map(row => {
-        val xfmc = row(0).toString.trim
-        val xfsbh = row(1).toString.trim
-        val gfmc = row(4).toString.trim
-        val source = "hive"
-        val xfqybm = getQybm(xfmc, xfsbh, gfmc)._1
-        val gfqybm = getQybm(xfmc, xfsbh, gfmc)._2
-        val buffer = Row.unapplySeq(row).get.map(_.asInstanceOf[String]).toBuffer
-        buffer.append(source)
-        buffer.append(gfqybm)
-        buffer.append(xfqybm)
-        val schema: StructType = row.schema
-          .add("source", StringType)
-          .add("gfqybm", StringType)
-          .add("xfqybm", StringType)
-        val newRow: Row = new GenericRowWithSchema(buffer.toArray, schema)
-        newRow
-      })
-      .persist(StorageLevel.MEMORY_AND_DISK_SER)
-      .filter(row => ! "-1".equals(row(23)))
-      .filter(row => ! nullDecide(row(8)))
-      .filter(row => ! nullDecide(row(9)))
+    val rdd2 = rdd1.map(row => {
+      val xfmc = row(0).toString.trim
+      val xfsbh = row(1).toString.trim
+      val gfmc = row(4).toString.trim
+      val source = "hive"
+      val xfqybm = getQybm(xfmc, xfsbh, gfmc)._1
+      val gfqybm = getQybm(xfmc, xfsbh, gfmc)._2
+      val buffer = Row.unapplySeq(row).get.map(_.asInstanceOf[String]).toBuffer
+      buffer.append(source)
+      buffer.append(gfqybm)
+      buffer.append(xfqybm)
+      val schema: StructType = row.schema
+        .add("source", StringType)
+        .add("gfqybm", StringType)
+        .add("xfqybm", StringType)
+      val newRow: Row = new GenericRowWithSchema(buffer.toArray, schema)
+      newRow
+    })
+      .filter(row => !"-1".equals(row(23)))
+      .filter(row => !nullDecide(row(8)))
+      .filter(row => !nullDecide(row(9)))
       .flatMap(row => {
         var yy = year
-        if (! nullDecide(row(16))) {
+        if (!nullDecide(row(16))) {
           yy = row(16).toString.trim.substring(2, 4)
         }
         val fpdm = row(8).toString.trim
@@ -123,10 +122,10 @@ object SparkReadHiveToHbaseBulkLoad {
         })
         values
       })
-      .persist(StorageLevel.MEMORY_AND_DISK_SER)
       .filter(x => x._1 != null)
-      .sortBy(x => (x._1, x._2._1, x._2._2))
       .persist(StorageLevel.MEMORY_AND_DISK_SER)
+    rdd1.unpersist()
+    rdd2.sortBy(x => (x._1, x._2._1, x._2._2))
       .map(rdd => {
         val rowKey = Bytes.toBytes(rdd._1)
         val family = Bytes.toBytes(rdd._2._1)

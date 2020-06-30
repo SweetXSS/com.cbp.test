@@ -16,14 +16,14 @@ import org.apache.spark.storage.StorageLevel
 
 
 object SparkReadHiveToHbasePut {
+  //设置日志级别
   Logger.getLogger("org").setLevel(Level.INFO)
 
   def main(args: Array[String]): Unit = {
-    //外部传参
+    //外部传参，hive表名、hbase表名、年份的后两位
     val hiveTable = args(0)
     val hbaseTable = args(1)
     val month = args(2)
-
     //创建SparkSession
     val ss = SparkSession.builder().appName("hiveTohbase")
       .enableHiveSupport()
@@ -42,7 +42,7 @@ object SparkReadHiveToHbasePut {
     ss.sparkContext.broadcast(columnNames)
     //设置hbase配置信息
     val hbaseConf = HBaseConfiguration.create()
-    hbaseConf.set("hbase.mapreduce.hfileoutputformat.table.name", hbaseTable)
+    hbaseConf.set(TableOutputFormat.OUTPUT_TABLE, hbaseTable)
     hbaseConf.set("hbase.zookeeper.quorum", "masterhost1, masterhost2, masterhost3")
     hbaseConf.set("hbase.zookeeper.property.clientPort", "2181")
 
@@ -52,7 +52,7 @@ object SparkReadHiveToHbasePut {
     job.setOutputFormatClass(classOf[TableOutputFormat[ImmutableBytesWritable]])
     job.setOutputValueClass(classOf[Put])
 
-    //创建输出rdd，已put方式输出到hbase
+    //创建输出rdd，put方式输出到hbase
     mkOutputRdd(hiveDF, columnf, columnNames, month)
       .saveAsNewAPIHadoopDataset(job.getConfiguration)
     ss.close()
@@ -60,32 +60,30 @@ object SparkReadHiveToHbasePut {
 
   //获取到hive数据df，转换为rdd
   def mkOutputRdd(hiveDF: DataFrame, columnf: String, columnNames: Array[String], month: String) = {
-    hiveDF.rdd
-      .filter(row => row.length > 0 && !row(0).toString.contains("?") && ! nullDecide(row(0)) && ! nullDecide(row(1)))
+    val rdd1 = hiveDF.rdd.filter(row => row.length > 0 && !row(0).toString.contains("?") && !nullDecide(row(0)) && !nullDecide(row(1)))
       .coalesce(400, true)
       .persist(StorageLevel.MEMORY_AND_DISK_SER)
-      .map(row => {
-        val xfmc = row(0).toString.trim
-        val xfsbh = row(1).toString.trim
-        val gfmc = row(4).toString.trim
-        val source = "hive"
-        val xfqybm = getQybm(xfmc, xfsbh, gfmc)._1
-        val gfqybm = getQybm(xfmc, xfsbh, gfmc)._2
-        val buffer = Row.unapplySeq(row).get.map(_.asInstanceOf[String]).toBuffer
-        buffer.append(source)
-        buffer.append(gfqybm)
-        buffer.append(xfqybm)
-        val schema: StructType = row.schema
-          .add("source", StringType)
-          .add("gfqybm", StringType)
-          .add("xfqybm", StringType)
-        val newRow: Row = new GenericRowWithSchema(buffer.toArray, schema)
-        newRow
-      })
-      .persist(StorageLevel.MEMORY_AND_DISK_SER)
-      .filter(row => ! "-1".equals(row(23)))
-      .filter(row => ! nullDecide(row(8)))
-      .filter(row => ! nullDecide(row(9)))
+    val rdd2 = rdd1.map(row => {
+      val xfmc = row(0).toString.trim
+      val xfsbh = row(1).toString.trim
+      val gfmc = row(4).toString.trim
+      val source = "hive"
+      val xfqybm = getQybm(xfmc, xfsbh, gfmc)._1
+      val gfqybm = getQybm(xfmc, xfsbh, gfmc)._2
+      val buffer = Row.unapplySeq(row).get.map(_.asInstanceOf[String]).toBuffer
+      buffer.append(source)
+      buffer.append(gfqybm)
+      buffer.append(xfqybm)
+      val schema: StructType = row.schema
+        .add("source", StringType)
+        .add("gfqybm", StringType)
+        .add("xfqybm", StringType)
+      val newRow: Row = new GenericRowWithSchema(buffer.toArray, schema)
+      newRow
+    })
+      .filter(row => !"-1".equals(row(23)))
+      .filter(row => !nullDecide(row(8)))
+      .filter(row => !nullDecide(row(9)))
       .map(row => {
         var yy = row(16).toString.trim.substring(2, 4)
         if (nullDecide(row(16))) {
@@ -102,6 +100,8 @@ object SparkReadHiveToHbasePut {
         //转化成RDD[(ImmutableBytesWritable,Put)]类型才能调用saveAsHadoopDataset
         (new ImmutableBytesWritable, put)
       })
+    rdd1.unpersist()
+    rdd2
   }
 
   //rowkey设计qybm+yy+fpbm
@@ -137,13 +137,14 @@ object SparkReadHiveToHbasePut {
       val get = new Get(Bytes.toBytes(gfmc))
       val result = table.get(get)
       val r1 = Bytes.toString(result.getValue(Bytes.toBytes("qyxx"), Bytes.toBytes("qybm")))
-      if(!nullDecide(r1)){
+      if (!nullDecide(r1)) {
         gfqybm = r1
       }
     }
     conn.close()
     (xfqybm, gfqybm)
   }
+
   //处理空字段
   def nullHandle(str: String): String = {
     if (str == null || "".equals(str)) {

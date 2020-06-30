@@ -1,5 +1,7 @@
 package com.cbp.demo
 
+import java.util
+
 import com.cbp.spark_hive_hbase.SparkHbase2019.nullHandle
 import org.apache.hadoop.hbase.{HBaseConfiguration, TableName}
 import org.apache.hadoop.hbase.client.{ConnectionFactory, Get}
@@ -11,6 +13,16 @@ object Demo1 {
     val str = args(0)
     print("**********"+getQybm(str)+"****************")
     val ss = new SparkContext()
+
+//    //组装scan语句
+//    val scan=new Scan(Bytes.toBytes(startRowkey),Bytes.toBytes(endRowkey))
+//    scan.setCacheBlocks(false)
+//    scan.addFamily(Bytes.toBytes("ks"));
+//    scan.addColumn(Bytes.toBytes("ks"), Bytes.toBytes("data"))
+//    //将scan类转化成string类型
+//    val proto= ProtobufUtil.toScan(scan)
+//    val ScanToString = Base64.encodeBytes(proto.toByteArray());
+//    conf.set(TableInputFormat.SCAN,ScanToString)
 
   }
   def getQybm(xf_nsrsbh: String) = {

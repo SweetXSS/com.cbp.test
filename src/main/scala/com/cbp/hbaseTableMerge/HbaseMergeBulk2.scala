@@ -1,37 +1,38 @@
 package com.cbp.hbaseTableMerge
 
 import org.apache.hadoop.fs.Path
+import org.apache.hadoop.hbase.{HBaseConfiguration, KeyValue, TableName}
 import org.apache.hadoop.hbase.client.{ConnectionFactory, Result}
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable
 import org.apache.hadoop.hbase.mapreduce.{HFileOutputFormat2, TableInputFormat}
 import org.apache.hadoop.hbase.tool.LoadIncrementalHFiles
 import org.apache.hadoop.hbase.util.Bytes
-import org.apache.hadoop.hbase.{HBaseConfiguration, KeyValue, TableName}
 import org.apache.hadoop.mapreduce.Job
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.storage.StorageLevel
 import scala.collection.mutable.ArrayBuffer
 
-object HbaseMergeBulk {
+object HbaseMergeBulk2 {
   //设置日志级别
   Logger.getLogger("org").setLevel(Level.INFO)
+
   def main(args: Array[String]): Unit = {
     //外部传参，读表、写表、开始row、结束row、临时文件路径、重分区数、列族
     val readTable = args(0)
     val writeTable = args(1)
-    val startRow = args(2)
-//    val stopRow = args(3)
-    val hfilePath = args(3)
-    val partition = args(4)
-    val columnf = args(5)
+    val startTime = args(2)
+    val stopTime = args(3)
+    val filePath = args(4)
+    val partition = args(5)
+    val columnf = args(6)
     //创建spark sql入口类SparkSession
     val ss = SparkSession.builder().getOrCreate()
     //设置hbase配置信息
     val hbaseConf = HBaseConfiguration.create()
     hbaseConf.set(TableInputFormat.INPUT_TABLE, readTable)
-    hbaseConf.set(TableInputFormat.SCAN_ROW_START, startRow)
-//    hbaseConf.set(TableInputFormat.SCAN_ROW_STOP, stopRow)
+    hbaseConf.set(TableInputFormat.SCAN_TIMERANGE_START, startTime)
+    hbaseConf.set(TableInputFormat.SCAN_TIMERANGE_END, stopTime)
     hbaseConf.set("hbase.mapreduce.hfileoutputformat.table.name", writeTable)
     hbaseConf.setInt("hbase.mapreduce.bulkload.max.hfiles.perRegion.perFamily", 5000)
     //获取hbase连接，获取表名、region信息
@@ -73,14 +74,14 @@ object HbaseMergeBulk {
         val colum = Bytes.toBytes(rdd._2._2)
         val value = Bytes.toBytes(rdd._2._3)
         (new ImmutableBytesWritable(rowKey), new KeyValue(rowKey, family, colum, value))
-      }).saveAsNewAPIHadoopFile(hfilePath,
+      }).saveAsNewAPIHadoopFile(filePath,
       classOf[ImmutableBytesWritable],
       classOf[KeyValue],
       classOf[HFileOutputFormat2],
       hbaseConf)
     //创建bulk load 对象并加载
     val load = new LoadIncrementalHFiles(hbaseConf)
-    load.doBulkLoad(new Path(hfilePath), conn.getAdmin, table, regionLocator)
+    load.doBulkLoad(new Path(filePath), conn.getAdmin, table, regionLocator)
 
     table.close()
     conn.close()
